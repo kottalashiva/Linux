@@ -3,11 +3,17 @@
 #include<linux/init.h>
 #include<linux/fs.h>
 #include<linux/cdev.h>
+
 #include<linux/device.h>
 #include<linux/uaccess.h>
 
+#define SUCCESS 0
+#undef pr_fmt
+#define pr_fmt(fmt) "%s: " fmt,  __func__
 #define MEM_SIZE 512
+
 char buffer[MEM_SIZE];
+int fileInUse = 0;
 dev_t device_number; //Holds the device number.
 struct class *pcd_class; // Global variable for the device class
 struct cdev pcd_dev; // Global variable for the character device structure
@@ -16,26 +22,40 @@ struct cdev pcd_dev; // Global variable for the character device structure
 
 int pcd_open(struct inode *inode, struct file *filep)
 {
-	printk(KERN_INFO "Driver: open()\n");
-	return 0;
+	if(fileInUse == 1 )
+		return -EBUSY;
+	pr_info("Opening the file\n");
+	fileInUse = 1;
+
+	return SUCCESS;
 }
 
 int pcd_read(struct file *filep, char __user *buff, size_t count, loff_t *fpos)
 {
 	printk(KERN_INFO "Driver: Read()\n");
-	return 0;
+	pr_info("Current file position = %lld\n", *fpos);
+	if((*fpos + count) > MEM_SIZE)
+		count = MEM_SIZE - *fpos;
+	if(copy_to_user(buff, buffer[*fpos], count))
+		return -EFAULT;
+	*fpos += count;
+	pr_info("Number of bytes sucessfully read %u\n", count);
+	pr_info("user buffer is %s", buff);
+	pr_info("storage buffer is %s", buffer);
+	pr_info("storage buffer is %s", buffer[*fpos]);
+	return count;
 }
 
 int pcd_write(struct file *filep, char __user *buff, size_t count, loff_t *fpos)
 {
 	printk(KERN_INFO "Driver: write()\n");
-	pr_info("Read requested for %u bytes", count);
-	pr_info("Current file posistion = %lld\n", fpos);
+	pr_info("Write requested for %u bytes", count);
+	pr_info("Current file posistion = %lld\n", *fpos);
 	if((*fpos + count) > MEM_SIZE)
 		count = MEM_SIZE - *fpos;
 	if(copy_from_user(&buffer[*fpos], buff, count))
 		return -EFAULT;
-	fpos = fpos +  count;
+	*fpos = *fpos +  count;
 	pr_info("Number of bytes successfully written = %u\n", count);
 	pr_info("update file position= %lld\n", *fpos);
 	return count;
@@ -49,8 +69,11 @@ int pcd_lseek(struct file *filep,loff_t *fpos, int whence)
 
 int pcd_release(struct inode *inode)
 {
-	printk(KERN_INFO "Driver: relase\n");
-	return 0;
+	if(fileInUse == 1)
+		fileInUse = 0;
+
+	pr_info("file closed");	
+	return SUCCESS;
 }
 
 const struct file_operations pcd_fops= {
